@@ -1,0 +1,6 @@
+torch
+datasets
+transformers
+evaluate
+numpy
+Pillow
