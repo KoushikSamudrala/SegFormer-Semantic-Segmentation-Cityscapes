@@ -47,51 +47,7 @@ def create_dataloaders(batch_size=4):
         processed_images = []
         processed_segmentation_maps = []
 
-        NUM_LABELS = 19 
-        IGNORE_INDEX = 255 
-
-        for img, lbl in zip(images, labels):
-            processed_images.append(img)
-
-            labels_np = None
-            if isinstance(lbl, Image.Image):
-                labels_np = np.array(lbl)
-            elif isinstance(lbl, torch.Tensor):
-                labels_np = lbl.squeeze().cpu().numpy()
-            elif isinstance(lbl, np.ndarray):
-                labels_np = lbl.squeeze() 
-            else:
-                labels_np = np.array(lbl).squeeze()
-
-            if labels_np.ndim == 3 and labels_np.shape[-1] == 1:
-                labels_np = labels_np.squeeze(-1)
-
-            labels_np = labels_np.astype(np.uint8)
-
-            if labels_np.ndim == 3 and labels_np.shape[-1] == 3: 
-                labels_pil = Image.fromarray(labels_np, mode='RGB')
-            elif labels_np.ndim == 2: 
-                labels_pil = Image.fromarray(labels_np, mode='L')
-            else:
-                raise ValueError(f"Unexpected shape: {labels_np.shape}")
-
-            if labels_pil.mode != "L":
-                labels_pil = labels_pil.convert("L")
-
-            final_lbl_array = np.array(labels_pil, dtype=np.uint8)
-            final_lbl_array[final_lbl_array >= NUM_LABELS] = IGNORE_INDEX
-            processed_segmentation_maps.append(final_lbl_array)
-
-        return processor(images=processed_images, segmentation_maps=processed_segmentation_maps, return_tensors="pt")
-
-    # Apply Transforms & Create DataLoaders
-    train_data.set_transform(train_transforms)
-    val_data.set_transform(train_transforms)
-
-    train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
-
-    return train_dataloader, val_dataloader
+      
 ```
 
 ### 2. `model_builder.py`
@@ -130,33 +86,13 @@ def train_step(model, train_dataloader, optimizer, device):
         total_loss += loss.item()
     return total_loss / len(train_dataloader)
 
-def val_step(model, val_dataloader, device):
-    model.eval()
-    metric = load("mean_iou")
-    
-    with torch.no_grad():
-        for batch in val_dataloader:
-            pixel_values = batch["pixel_values"].to(device)
-            labels = batch["labels"].to(device)
-            
-            outputs = model(pixel_values=pixel_values, labels=labels)
-            predicted_masks = outputs.logits.argmax(dim=1)
-            
-            metric.add_batch(predictions=predicted_masks, references=labels)
-            
-    final_score = metric.compute(num_labels=19, ignore_index=255)
-    return final_score["mean_iou"]
+
 ```
 
 ### 4. `train.py`
 The main execution script. Orchestrates the modules and saves the fully trained weights.
 
 ```python
-import torch
-from torch.optim import AdamW
-import data_setup
-import model_builder
-import engine
 
 def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -169,15 +105,6 @@ def main():
     model = model_builder.create_model(num_labels=19, device=device)
     optimizer = AdamW(model.parameters(), lr=5e-5)
 
-    epochs = 10
-    print("Starting Training...")
-    for epoch in range(epochs):
-        train_loss = engine.train_step(model, train_dataloader, optimizer, device)
-        print(f"Epoch: {epoch} | Train Loss: {train_loss:.4f}")
-        
-    print("Evaluating Model...")
-    mIoU = engine.val_step(model, val_dataloader, device)
-    print(f"Final mIoU: {mIoU:.4f}")
 
     checkpoint = "./my_segformer_model"
     model.save_pretrained(checkpoint)
